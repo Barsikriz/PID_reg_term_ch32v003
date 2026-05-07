@@ -1,0 +1,62 @@
+
+# Build artifacts
+*.o
+*.elf
+*.bin
+*.hex
+*.lst
+*.map
+
+# Object and intermediate dirs
+build/
+out/
+
+# Linker scripts / generated files you don't want in git (if generated)
+*.ld~
+
+# Tooling / compile database
+compile_commands.json
+compile_flags.txt
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+/tags
+
+# Neovim / LazyVim and caches
+.cache/
+.cache-*/ 
+lua/.cache/
+.session
+undo/
+shada/
+plugged/
+lazy-lock.json
+
+# clangd
+.clangd/
+.clangd/*
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Toolchain / local installs
+.env
+.envrc
+*.local
+bin/
+
+# OpenOCD / stlink logs etc
+*.log
+
+# Mounted media (avoid committing large mountpoint artifacts)
+/media/
+mnt/
+
+# Coverage / reports
+coverage/
+*.gcda
+*.gcno
