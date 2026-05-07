@@ -65,8 +65,8 @@
 /* ============================================================
    Helper macro for pin configuration in CFGLR
    ============================================================ *
-/* MODE: 00=input, 01=10MHz output, 10=2MHz output, 11=50MHz output */
-/* CNF:  in input mode: 00=analog, 01=floating, 10=pull-up/down
+/* MODE: 00=input, 01=10MHz output, 10=2MHz output, 11=50MHz output
+CNF:  in input mode: 00=analog, 01=floating, 10=pull-up/down
          in output mode: 00=push-pull, 01=open-drain,
                          10=alt.func push-pull, 11=alt.func open-drain */
 
@@ -89,5 +89,3 @@
 #define RCC_DISABLE_PERIPH(reg, bit) ((reg) &= ~(bit))
 
 #endif /* CH32V003_H_ */
-
-#endif // !CH32V003_H_

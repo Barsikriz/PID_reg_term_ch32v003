@@ -1,7 +1,8 @@
-# Makefile для CH32V003
-
 CC = riscv-none-elf-gcc
 OBJCOPY = riscv-none-elf-objcopy
+
+# абсолютный путь к include (относительно местоположения Makefile)
+INCLUDE_DIR := $(abspath ../include)
 
 CFLAGS = -march=rv32ec \
          -mabi=ilp32e \
@@ -10,15 +11,22 @@ CFLAGS = -march=rv32ec \
          -ffreestanding \
          -nostdlib \
          -nostartfiles \
-         -Wall
+         -Wall \
+         -I$(INCLUDE_DIR)
+
+SRCS = main.c startup.c
+OBJS = $(SRCS:.c=.o)
 
 all: firmware.elf firmware.bin
 
-firmware.elf: main.c
-	$(CC) $(CFLAGS) -T link.ld main.c startup.c -o firmware.elf
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+firmware.elf: $(OBJS) ../ld/link.ld
+	$(CC) $(CFLAGS) -T ../ld/link.ld $(OBJS) -o $@
 
 firmware.bin: firmware.elf
 	$(OBJCOPY) -O binary firmware.elf firmware.bin
 
 clean:
-	del *.elf *.bin *.hex *.o
+	rm -f $(OBJS) *.elf *.bin *.hex
