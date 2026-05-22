@@ -252,8 +252,12 @@
     }
   },
   "libraries": {
-    "pinned_footprint_libs": [],
-    "pinned_symbol_libs": []
+    "pinned_footprint_libs": [
+      "My_Power_Supplies_footprint"
+    ],
+    "pinned_symbol_libs": [
+      "PIDLIBSYMBOLS"
+    ]
   },
   "meta": {
     "filename": "PID_reg_term_ch32v003_CAD.kicad_pro",
@@ -416,7 +420,7 @@
         "uuid": "4ee40f45-5f16-449d-96b5-0b243a892257"
       }
     ],
-    "used_designators": "U1",
+    "used_designators": "U1,#PWR1,J1",
     "variants": []
   },
   "sheets": [

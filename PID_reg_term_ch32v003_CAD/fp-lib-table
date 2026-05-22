@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "My_Power_Supplies_footprint") (type "KiCad") (uri "${KIPRJMOD}/My_Power_Supplies_footprint.pretty") (options "") (descr ""))
+)
