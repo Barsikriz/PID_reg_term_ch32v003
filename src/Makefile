@@ -10,8 +10,12 @@ LD_SCRIPT := $(PROJECT_ROOT)/ld/link.ld
 CFLAGS := -march=rv32ec -mabi=ilp32e -O2 -ffreestanding -nostdlib -Wall -I$(INCLUDE_DIR)
 LDFLAGS := -T $(LD_SCRIPT) -nostartfiles
 
-SRCS := $(wildcard *.c)
-OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
+SRCS_C := $(wildcard *.c)
+SRCS_ASM := $(wildcard *.S)
+
+OBJS_C := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS_C))
+OBJS_ASM := $(patsubst %.S,$(BUILD_DIR)/%.o,$(SRCS_ASM))
+OBJS := $(OBJS_C) $(OBJS_ASM)
 
 .PHONY: all clean dirs
 
@@ -22,6 +26,9 @@ dirs:
 
 # compile each C source into build/*.o
 $(BUILD_DIR)/%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: %.S
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # link into ELF
