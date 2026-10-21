@@ -1,0 +1,549 @@
+#include "ch32v003.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+#define LED_PIN 0U
+#define BTN_PIN 4U
+#define UART_TX_PIN 5U
+#define UART_RX_PIN 6U
+
+#define F_CPU 48000000UL
+#define UART_BAUD 115200UL
+
+#define SYSTICK_HZ (F_CPU / 8UL)
+#define MS_TO_TICKS(ms) ((uint32_t)(ms) * (SYSTICK_HZ / 1000UL))
+
+#define RCC_HPRE_MASK (0xFUL << 4)
+#define RCC_PLLSRC_MASK (1UL << 16)
+
+#define FLASH_LATENCY_1 0x1UL
+
+#define BUTTON_DEBOUNCE_MS 30U
+
+#define PWM_R_PIN 2U /* PD2 = TIM1_CH1 */
+#define PWM_G_PIN 1U /* PA1 = TIM1_CH2 */
+#define PWM_B_PIN 3U /* PC3 = TIM1_CH3 */
+
+#define PWM_FREQ 20000UL
+#define PWM_COUNTS (F_CPU / PWM_FREQ)
+
+#define SYS_TICK_PER_MS (F_CPU / 8UL / 1000UL)
+#define MCAUSE_INTERRUPT_BIT (1IL << 31)
+#define MCAUSE_CODE_MASK 0x7FFFFFFFUL
+
+volatile uint32_t system_ms = 0;
+volatile uint32_t fault_mcause = 0;
+volatile uint32_t fault_mepc = 0;
+
+void SystemInit(void);
+void trap_c(unsigned long mcause, unsigned long mepc);
+
+/* =========================================================
+ * CLOCK
+ * HSI 24 MHz -> PLL x2 -> SYSCLK 48 MHz -> HCLK /1
+ * ========================================================= */
+void SystemInit(void) {
+  FLASH->ACTLR = (FLASH->ACTLR & ~0x3UL) | FLASH_LATENCY_1;
+
+  /* HCLK = SYSCLK / 1, PLL source = HSI */
+  RCC->CFGR0 &= ~(RCC_HPRE_MASK | RCC_PLLSRC_MASK);
+
+  /* Enable PLL and wait until it is stable. */
+  RCC->CTLR |= RCC_PLLON;
+
+  while (!(RCC->CTLR & RCC_PLLRDY)) {
+  }
+
+  /* Switch SYSCLK to PLL. */
+  RCC->CFGR0 = (RCC->CFGR0 & ~RCC_SW_MASK) | RCC_SW_PLL;
+
+  while ((RCC->CFGR0 & RCC_SWS_MASK) != RCC_SWS_PLL) {
+  }
+
+  /* Free-running SysTick:
+   * STCLK = 0 -> HCLK / 8 = 6 MHz.
+   */
+  STK_CNTL = 0;
+  STK_CTLR = STK_STE;
+}
+
+/* =========================================================
+ * INTERRUPTS
+ * ========================================================= */
+
+static inline void irq_enable_global(void) {
+  __asm volatile("csrsi mstatus, 8" : : : "memory");
+}
+
+static inline void irq_disable_global(void) {
+  __asm volatile("csrsi mstatus, 8" : : : "memory");
+}
+
+static void systick_irq_init(void) {
+  STK_CTLR = 0;
+  STR_SR = 0;
+  STK_CNTL = 0;
+  STK_CMPLR = SYS_TICK_PER_MS;
+  PFIC_IENR0 = 1UL << IRQ_SYSTICK;
+  irq_enable_global();
+  /*
+   * STE  = counter enable
+   * STIE = interrupt enable
+   *
+   * STCLK = 0 -> HCLK / 8
+   */
+  STK_CTLR = STK_STE | STK_STIE;
+}
+
+/* =========================================================
+ * TRAP
+ * ========================================================= */
+void trap_c(unsigned long mcause, unsigned long mepc) {
+  const bool is_interrupt = (mcause & MCAUSE_INTERRUPT_BIT != 0);
+
+  const uint32_t code = (uint32_t)(mcause & MCAUSE_CODE_MASK);
+
+  if (is_interrupt && code == IRQ_SYSTICK) {
+    STK_SR = 0;
+    STK_CMPLR += SYS_TICK_PER_MS;
+  }
+}
+
+/* =========================================================
+ * GPIO
+ * ========================================================= */
+static void gpio_cfg(GPIO_TypeDef *port, int pin, uint32_t mode) {
+  {
+    const uint32_t shift = pin * 4U;
+
+    port->CFGLR = (port->CFGLR & ~(0xFUL << shift)) | (mode << shift);
+  }
+}
+static void gpio_init(void) {
+  RCC->APB2PCENR |= RCC_IOPAEN | RCC_IOPCEN | RCC_IOPDEN;
+  gpio_cfg(GPIOC, LED_PIN, GPIO_OUT_PP_10);
+  gpio_cfg(GPIOD, BTN_PIN, GPIO_IN_PUPD);
+  /* * 1 = pull-up 0 = pull-down */
+  GPIOD->OUTDR |= 1UL << BTN_PIN;
+
+  /*
+   * TIM1 PWM outputs:
+   *
+   * PD2 = TIM1_CH1 = Red
+   * PA1 = TIM1_CH2 = Green
+   * PC3 = TIM1_CH3 = Blue
+   */
+  gpio_cfg(GPIOD, PWM_R_PIN, GPIO_AF_PP_50);
+  gpio_cfg(GPIOA, PWM_G_PIN, GPIO_AF_PP_50);
+  gpio_cfg(GPIOC, PWM_B_PIN, GPIO_AF_PP_50);
+}
+
+static void led_set(bool on) {
+  if (on) {
+    GPIOC->BSHR = 1UL << LED_PIN;
+  } else {
+    GPIOC->BSHR = 1UL << (LED_PIN + 16U);
+  }
+}
+
+static uint32_t button_read(void) { return (GPIOD->INDR >> BTN_PIN) & 1UL; }
+
+/* =========================================================
+ * UART
+ * ========================================================= */
+static void uart_init(void) {
+  RCC->APB2PCENR |= RCC_IOPDEN | RCC_USART1EN;
+
+  gpio_cfg(GPIOD, UART_TX_PIN, GPIO_AF_PP_50);
+  gpio_cfg(GPIOD, UART_RX_PIN, GPIO_IN_FLOAT);
+
+  USART1->BRR = (F_CPU + UART_BAUD / 2UL) / UART_BAUD;
+
+  USART1->CTLR1 = USART_UE | USART_TE | USART_RE;
+}
+
+static void uart_putc(uint8_t c) {
+  while (!(USART1->STATR & USART_TXE)) {
+  }
+  USART1->DATAR = c;
+}
+
+static void uart_puts(const char *s) {
+  while (*s) {
+    if (*s == '\n')
+      uart_putc('\r');
+    uart_putc((uint8_t)*s++);
+  }
+}
+
+static bool uart_try_getc(uint8_t *c) {
+  if (!(USART1->STATR & USART_RXNE)) {
+    return false;
+  }
+  *c = (uint8_t)USART1->DATAR;
+  return true;
+}
+
+static void uart_put_u32(uint32_t value) {
+  char buffer[10];
+  uint32_t len = 0;
+
+  if (value == 0U) {
+    uart_putc('0');
+    return;
+  }
+
+  while (value > 0U) {
+    buffer[len++] = (char)('0' + (value % 10U));
+    value /= 10U;
+  }
+
+  while (len > 0U) {
+    uart_putc((uint8_t)buffer[--len]);
+  }
+}
+
+/* =========================================================
+
+ * PWM
+ * TIM1:
+ *   CH1 -> PD2 -> Red
+ *   CH2 -> PA1 -> Green
+ *   CH3 -> PC3 -> Blue
+ * ========================================================= */
+
+static void pwm_init(void) {
+  /* Enable TIM1 peripheral clock. */
+  RCC->APB2PCENR |= RCC_TIM1EN;
+
+  /*
+   * Stop timer while configuring it.
+   *
+   * Timer clock = 48 MHz
+   * PSC = 0 -> no prescaling
+   *
+   * 48 MHz / 2400 = 20 kHz
+   */
+
+  TIM1->CTLR1 = 0;
+  TIM1->PSC = 0;
+  TIM1->ATRLR = (uint16_t)(PWM_COUNTS - 1UL);
+  TIM1->CH1CVR = 0;
+  TIM1->CH2CVR = 0;
+  TIM1->CH3CVR = 0;
+
+  /*
+   * CH1 and CH2:
+   * PWM mode 1 + compare preload.
+   */
+
+  TIM1->CHCTLR1 = TIM_OC1_PWM1 | TIM_OC1PE | TIM_OC2_PWM1 | TIM_OC2PE;
+  /* CH3:
+   * PWM mode 1 + preload
+   */
+  TIM1->CHCTLR2 = TIM_OC3_PWM1 | TIM_OC3PE;
+
+  TIM1->CCER = TIM_CC1E | TIM_CC2E | TIM_CC3E;
+
+  TIM1->CTLR1 |= TIM_ARPE;
+
+  /*
+   * Force registers into active state.
+   */
+  TIM1->SWEVGR = TIM_UG;
+
+  /*
+   * TIM1 is an advanced timer:
+   * main output must also be enabled.
+   */
+  TIM1->BDTR |= TIM_MOE;
+
+  /*
+   * Start counter.
+   */
+  TIM1->CTLR1 |= TIM_CEN;
+}
+/* =========================================================
+ * PWM API
+ * ========================================================= */
+
+static uint16_t pwm_from_u8(uint8_t value) {
+  /*
+   * 0   -> 0 / 2400       = 0%
+   * 128 -> ~1205 / 2400   = ~50%
+   * 255 -> 2400 / 2400    = 100%
+   */
+  return (uint16_t)(((uint32_t)value * PWM_COUNTS + 127UL) / 255UL);
+}
+
+typedef struct {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} RgbColor;
+
+static RgbColor current_rgb;
+
+static void rgb_set(uint8_t r, uint8_t g, uint8_t b) {
+  current_rgb.r = r;
+  current_rgb.g = g;
+  current_rgb.b = b;
+
+  TIM1->CH1CVR = pwm_from_u8(r);
+  TIM1->CH2CVR = pwm_from_u8(g);
+  TIM1->CH3CVR = pwm_from_u8(b);
+}
+static RgbColor current_rgb;
+
+static void uart_put_rgb(const RgbColor *rgb) {
+  uart_puts("RGB ");
+
+  uart_put_u32(rgb->r);
+  uart_putc(' ');
+
+  uart_put_u32(rgb->g);
+  uart_putc(' ');
+
+  uart_put_u32(rgb->b);
+
+  uart_puts("\n");
+}
+
+/* =========================================================
+ * UART COMMAND PARSER
+ *
+ * Commands:
+ *   p
+ *   led 0
+ *   led 1
+ *   rgb 255 128 0
+ *   off
+ *   rgb?
+ * ========================================================= */
+
+#define UART_LINE_MAX 32U
+
+static char uart_line[UART_LINE_MAX];
+static uint32_t uart_line_len = 0;
+
+static bool str_equal(const char *a, const char *b) {
+  while (*a && *b) {
+    if (*a != *b) {
+      return false;
+    }
+    ++a;
+    ++b;
+  }
+  return *a == '\0' && *b == '\0';
+}
+
+static bool parse_u8(const char **text, uint8_t *value) {
+  const char *p = *text;
+
+  while (*p == ' ' || *p == '\t') {
+    ++p;
+  }
+
+  if (*p < '0' || *p > '9') {
+    return false;
+  }
+
+  uint32_t result = 0;
+
+  while (*p >= '0' && *p <= '9') {
+
+    result = result * 10U + (uint32_t)(*p - '0');
+
+    if (result > 255U) {
+      return false;
+    }
+
+    ++p;
+  }
+
+  *value = (uint8_t)result;
+  *text = p;
+
+  return true;
+}
+
+static void handle_uart_line(const char *line) {
+  if (str_equal(line, "p")) {
+    uart_puts("PONG\n");
+    return;
+  }
+
+  if (str_equal(line, "led 1")) {
+    led_set(true);
+    uart_puts("OK LED 1\n");
+    return;
+  }
+
+  if (str_equal(line, "led 0")) {
+    led_set(false);
+    uart_puts("OK LED 0\n");
+    return;
+  }
+
+  if (str_equal(line, "off")) {
+    rgb_set(0, 0, 0);
+    uart_puts("OK RGB 0 0 0\n");
+    return;
+  }
+
+  if (str_equal(line, "rgb?")) {
+    uart_put_rgb(&current_rgb);
+    return;
+  }
+
+  if (line[0] == 'r' && line[1] == 'g' && line[2] == 'b' &&
+      (line[3] == ' ' || line[3] == '\t')) {
+
+    const char *p = &line[3];
+
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+
+    if (!parse_u8(&p, &r) || !parse_u8(&p, &g) || !parse_u8(&p, &b)) {
+
+      uart_puts("ERR rgb values must be 0..255\n");
+      return;
+    }
+
+    while (*p == ' ' || *p == '\t') {
+      ++p;
+    }
+
+    if (*p != '\0') {
+      uart_puts("ERR syntax\n");
+      return;
+    }
+
+    rgb_set(r, g, b);
+    uart_puts("OK RGB\n");
+    return;
+  }
+
+  uart_puts("ERR unknown command\n");
+}
+
+static void uart_process_byte(uint8_t c) {
+  /*
+   * Accept all common terminal line endings:
+   *
+   * LF   = '\n'
+   * CR   = '\r'
+   * CRLF = "\r\n"
+   *
+   * For CRLF the first character executes the command,
+   * the second sees an empty buffer and does nothing.
+   */
+  if (c == '\r' || c == '\n') {
+
+    uart_line[uart_line_len] = '\0';
+
+    if (uart_line_len != 0U) {
+      handle_uart_line(uart_line);
+    }
+
+    uart_line_len = 0;
+    return;
+  }
+
+  if (c == '\b' || c == 127U) {
+    if (uart_line_len > 0U) {
+      --uart_line_len;
+    }
+    return;
+  }
+
+  if (uart_line_len < UART_LINE_MAX - 1U) {
+    uart_line[uart_line_len++] = (char)c;
+  } else {
+    uart_line_len = 0;
+    uart_puts("ERR line too long\n");
+  }
+}
+
+/* =========================================================
+ * MAIN
+ * ========================================================= */
+int main(void) {
+  gpio_init();
+  uart_init();
+  pwm_init();
+
+  /*
+   * Safe initial state:
+   * strip off.
+   */
+  rgb_set(0, 0, 0);
+  led_set(false);
+
+  uart_puts("READY\n");
+  uart_puts("Commands:\n");
+  uart_puts("  p\n");
+  uart_puts("  led 0\n");
+  uart_puts("  led 1\n");
+  uart_puts("  rgb R G B\n");
+  uart_puts("  off\n");
+
+  /*
+   * Button debounce state.
+   *
+   * Pull-up:
+   *   1 = released
+   *   0 = pressed
+   */
+  uint32_t stable = button_read();
+  uint32_t candidate = stable;
+  uint32_t candidate_since = STK_CNTL;
+
+  for (;;) {
+
+    /* -------------------------
+     * UART
+     * ------------------------- */
+
+    uint8_t c;
+
+    while (uart_try_getc(&c)) {
+      uart_process_byte(c);
+    }
+
+    /* -------------------------
+     * BUTTON
+     * ------------------------- */
+
+    const uint32_t now = button_read();
+
+    /*
+     * Raw input changed.
+     * Start counting debounce time again.
+     */
+    if (now != candidate) {
+      candidate = now;
+      candidate_since = STK_CNTL;
+    }
+
+    /*
+     * Candidate differs from accepted state.
+     */
+    if (candidate != stable) {
+
+      const uint32_t elapsed = (uint32_t)(STK_CNTL - candidate_since);
+
+      if (elapsed >= MS_TO_TICKS(BUTTON_DEBOUNCE_MS)) {
+
+        stable = candidate;
+
+        if (stable == 0U) {
+          uart_puts("BTN 1\n");
+        } else {
+          uart_puts("BTN 0\n");
+        }
+      }
+    }
+  }
+}
