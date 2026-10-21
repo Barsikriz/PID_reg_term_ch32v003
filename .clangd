@@ -1,0 +1,8 @@
+CompileFlags:
+  Add: [
+    --target=riscv32-unknown-elf,
+    -march=rv32ec,
+    -mabi=ilp32e,
+    -ffreestanding,
+    -nostdlib
+  ]
