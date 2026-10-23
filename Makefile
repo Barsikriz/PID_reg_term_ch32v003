@@ -6,15 +6,15 @@
 CC := gcc
 BUILD_DIR := build/host
 
-CPPFLAGS := -Ifirmware/control -Ifirmware/system
+CPPFLAGS := -Ifirmware/control -Ifirmware/system -Isimulation
 CFLAGS   := -std=c11 -Og -g3 -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes
 LDLIBS   := -lm
 
-CORE_SRC := firmware/control/reference.c firmware/system/state_machine.c
+CORE_SRC := firmware/control/reference.c firmware/system/state_machine.c simulation/thermal_model.c
 TEST_SRC := $(wildcard tests/test_*.c)
 ALL_SRC  := $(CORE_SRC) $(TEST_SRC)
 
-CORE_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(CORE_SRC))
+CORE_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(CORE_SRC)void)
 TEST_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(TEST_SRC))
 TEST_BIN := $(patsubst tests/%.c,$(BUILD_DIR)/tests/%.exe,$(TEST_SRC))
 DEPFILES := $(CORE_OBJ:.o=.d) $(TEST_OBJ:.o=.d)
@@ -63,7 +63,7 @@ clean:
 COMMA := ,
 PROJECT_DIR := $(subst \,/,$(CURDIR))
 define COMPDB_ENTRY
-{"directory":"$(PROJECT_DIR)","file":"$(subst \,/,$(abspath $(1)))","arguments":["$(CC_PATH)","-std=c11","-Og","-g3","-Wall","-Wextra","-Wpedantic","-Wshadow","-Wstrict-prototypes","-Ifirmware/control","-Ifirmware/system","-c","$(subst \,/,$(abspath $(1)))"]}
+{"directory":"$(PROJECT_DIR)","file":"$(subst \,/,$(abspath $(1)))","arguments":["$(CC_PATH)","-std=c11","-Og","-g3","-Wall","-Wextra","-Wpedantic","-Wshadow","-Wstrict-prototypes","-Ifirmware/control","-Ifirmware/system", "-Isimulation", "-c","$(subst \,/,$(abspath $(1)))"]}
 endef
 
 compdb:
