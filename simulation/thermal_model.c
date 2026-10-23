@@ -7,10 +7,12 @@ float thermal_step(float current_c, float control, float dt_s,
     return current_c;
   }
 
-  float new_temp = current_c + (dt_s *
-                                ((params->max_power_w * control) -
-                                 params->conductance_w_per_c * current_c) /
-                                params->heat_capacity_j_per_c);
+  float new_temp =
+      current_c +
+      (dt_s *
+       ((params->max_power_w * control) -
+        params->conductance_w_per_c * (current_c - params->ambient_c)) /
+       params->heat_capacity_j_per_c);
 
   return new_temp;
 }
