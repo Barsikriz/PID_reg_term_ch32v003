@@ -2,9 +2,15 @@
 
 float thermal_step(float current_c, float control, float dt_s,
                    const thermal_params_t *params) {
-  if (dt_s <= 0 || params->heat_capacity_j_per_c <= 0 || control < -1.0f ||
-      control > 1.0f) {
+  if (dt_s <= 0 || params->heat_capacity_j_per_c <= 0) {
     return current_c;
+  }
+  if (control > 1.0f) {
+    control = 1.0f;
+  }
+
+  if (control < -1.0f) {
+    control = -1.0f;
   }
 
   float new_temp =
