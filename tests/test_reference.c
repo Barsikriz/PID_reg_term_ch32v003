@@ -2,7 +2,6 @@
 #include <math.h>
 
 #include "reference.h"
-
 static void test_cooling(void) {
   float result = reference_update(20.0f, 10.0f, 6.0f, 2.0f);
 

@@ -1,170 +1,79 @@
-# ============================================================
-# CH32V003 firmware Makefile
-# ============================================================
+# Host-side builds for the CH32V003 thermostat project.
+# Firmware cross-compilation will be added after the MCU startup/linker setup is fixed.
 
-TARGET    := main
-BUILD_DIR := build
+.DEFAULT_GOAL := all
 
-# ---------- Toolchain ----------
-CROSS   ?= riscv-none-elf-
-CC      := $(CROSS)gcc
-OBJCOPY := $(CROSS)objcopy
-OBJDUMP := $(CROSS)objdump
-SIZE    := $(CROSS)size
+CC := gcc
+BUILD_DIR := build/host
 
-# minichlink должен быть доступен в PATH.
-# При необходимости можно:
-# make flash MINICHLINK=../ch32v003fun/minichlink/minichlink.exe
-MINICHLINK ?= minichlink
+CPPFLAGS := -Ifirmware/control -Ifirmware/system
+CFLAGS   := -std=c11 -Og -g3 -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes
+LDLIBS   := -lm
 
-# ---------- Architecture ----------
-ARCH := -march=rv32ec_zicsr -mabi=ilp32e
+CORE_SRC := firmware/control/reference.c firmware/system/state_machine.c
+TEST_SRC := $(wildcard tests/test_*.c)
+ALL_SRC  := $(CORE_SRC) $(TEST_SRC)
 
-# ---------- Compiler flags ----------
-CFLAGS := \
-	$(ARCH) \
-	-std=c11 \
-	-Os \
-	-g \
-	-Wall \
-	-Wextra \
-	-Wpedantic \
-	-ffreestanding \
-	-ffunction-sections \
-	-fdata-sections \
-	-fno-common \
-	-MMD \
-	-MP
+CORE_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(CORE_SRC))
+TEST_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(TEST_SRC))
+TEST_BIN := $(patsubst tests/%.c,$(BUILD_DIR)/tests/%.exe,$(TEST_SRC))
+DEPFILES := $(CORE_OBJ:.o=.d) $(TEST_OBJ:.o=.d)
 
-ASFLAGS := \
-	$(ARCH) \
-	-g
+# Keep test object files for incremental rebuilds.
+.SECONDARY: $(TEST_OBJ)
 
-# ---------- Linker flags ----------
-LDFLAGS := \
-	$(ARCH) \
-	-T linker.ld \
-	-nostartfiles \
-	-nostdlib \
-	-Wl,--gc-sections \
-	-Wl,--print-memory-usage \
-	-Wl,--build-id=none \
-	-Wl,-Map=$(BUILD_DIR)/$(TARGET).map
-
-# ---------- Files ----------
-OBJS := \
-	$(BUILD_DIR)/startup.o \
-	$(BUILD_DIR)/main.o
-
-DEPS := $(OBJS:.o=.d)
-
-ELF := $(BUILD_DIR)/$(TARGET).elf
-BIN := $(BUILD_DIR)/$(TARGET).bin
-MAP := $(BUILD_DIR)/$(TARGET).map
-LST := $(BUILD_DIR)/$(TARGET).lst
-
-
-# ============================================================
-# Main targets
-# ============================================================
-
-.PHONY: all
-all: $(BIN) size
-
-
-# ---------- ELF ----------
-$(ELF): $(OBJS) linker.ld
-	$(CC) $(LDFLAGS) $(OBJS) -lgcc -o $@
-
-
-# ---------- Binary ----------
-$(BIN): $(ELF)
-	$(OBJCOPY) -O binary $< $@
-
-
-# ---------- C ----------
-$(BUILD_DIR)/main.o: main.c ch32v003.h | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-
-# ---------- Startup assembly ----------
-$(BUILD_DIR)/startup.o: startup.S | $(BUILD_DIR)
-	$(CC) $(ASFLAGS) -c $< -o $@
-
-
-# ============================================================
-# Build directory
-# ============================================================
-
-$(BUILD_DIR):
 ifeq ($(OS),Windows_NT)
-	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+MKDIR = powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(1)' | Out-Null"
+RMDIR = powershell -NoProfile -Command "if (Test-Path '$(1)') { Remove-Item -LiteralPath '$(1)' -Recurse -Force }"
+CC_FOUND := $(subst \,/,$(firstword $(shell where.exe $(CC))))
 else
-	@mkdir -p "$(BUILD_DIR)"
+MKDIR = mkdir -p "$(1)"
+RMDIR = rm -rf "$(1)"
+CC_FOUND := $(shell command -v $(CC))
 endif
 
+CC_PATH := $(if $(CC_FOUND),$(CC_FOUND),$(CC))
 
-# ============================================================
-# Utility targets
-# ============================================================
+.PHONY: all test clean compdb help
 
-.PHONY: size
-size: $(ELF)
-	$(SIZE) $(ELF)
+all: $(TEST_BIN)
+	@echo Host tests built: $(words $(TEST_BIN))
 
+test: all
+ifeq ($(strip $(TEST_BIN)),)
+	@echo No tests found in tests/test_*.c
+else
+	@$(foreach exe,$(TEST_BIN),"$(exe)" && ) echo All host tests passed.
+endif
 
-.PHONY: disasm
-disasm: $(ELF)
-	$(OBJDUMP) -d -S $(ELF) > $(LST)
-	@echo Disassembly: $(LST)
+$(BUILD_DIR)/%.o: %.c
+	@$(call MKDIR,$(dir $@))
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c "$<" -o "$@"
 
+$(BUILD_DIR)/tests/%.exe: $(BUILD_DIR)/tests/%.o $(CORE_OBJ)
+	$(CC) $^ -o "$@" $(LDFLAGS) $(LDLIBS)
 
-# ============================================================
-# Flashing
-# ============================================================
+-include $(DEPFILES)
 
-.PHONY: flash
-flash: $(BIN)
-	$(MINICHLINK) -w $(BIN) flash -b
-
-
-.PHONY: reset
-reset:
-	$(MINICHLINK) -b
-
-
-# ============================================================
-# Cleaning
-# ============================================================
-
-.PHONY: clean
 clean:
-ifeq ($(OS),Windows_NT)
-	@if exist "$(BUILD_DIR)" rmdir /S /Q "$(BUILD_DIR)"
-else
-	rm -rf "$(BUILD_DIR)"
-endif
+	@$(call RMDIR,build)
 
+# Regenerate clangd's compile_commands.json without Bear/CMake/Python.
+# Paths are normalized to forward slashes for JSON and clangd on Windows.
+COMMA := ,
+PROJECT_DIR := $(subst \,/,$(CURDIR))
+define COMPDB_ENTRY
+{"directory":"$(PROJECT_DIR)","file":"$(subst \,/,$(abspath $(1)))","arguments":["$(CC_PATH)","-std=c11","-Og","-g3","-Wall","-Wextra","-Wpedantic","-Wshadow","-Wstrict-prototypes","-Ifirmware/control","-Ifirmware/system","-c","$(subst \,/,$(abspath $(1)))"]}
+endef
 
-.PHONY: rebuild
-rebuild: clean all
+compdb:
+	$(file >compile_commands.json,[)
+	$(foreach src,$(ALL_SRC),$(file >>compile_commands.json,$(call COMPDB_ENTRY,$(src))$(if $(filter $(src),$(lastword $(ALL_SRC))),,$(COMMA))))
+	$(file >>compile_commands.json,])
+	@echo Generated compile_commands.json for $(words $(ALL_SRC)) C files.
 
-
-# ============================================================
-# Help
-# ============================================================
-
-.PHONY: help
 help:
-	@echo "Targets:"
-	@echo "  make          - build firmware"
-	@echo "  make flash    - build if needed and flash MCU"
-	@echo "  make reset    - reset/run MCU via minichlink"
-	@echo "  make disasm   - generate annotated disassembly"
-	@echo "  make size     - show firmware size"
-	@echo "  make clean    - remove build directory"
-	@echo "  make rebuild  - clean and rebuild everything"
-
-
-# Automatically generated header dependencies.
--include $(DEPS)
+	@echo all    - Compile host test executables
+	@echo test   - Build and run all host tests
+	@echo clean  - Delete the build directory
+	@echo compdb - Generate compile_commands.json for clangd

@@ -7,7 +7,12 @@ thermostat_state_t thermostat_transition(thermostat_state_t current,
     return THERMOSTAT_FAULT;
   }
   if (!safe_to_run) {
-    return THERMOSTAT_IDLE;
+    if (current == THERMOSTAT_RAMP || current == THERMOSTAT_HOLD ||
+        current == THERMOSTAT_FAULT) {
+      return THERMOSTAT_FAULT;
+    }
+
+    return current;
   }
   switch (current) {
   case THERMOSTAT_IDLE:
