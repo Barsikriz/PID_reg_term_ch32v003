@@ -66,9 +66,16 @@ static void test_reset_safe(void) {
   assert(result == THERMOSTAT_IDLE);
 }
 
-static void test_unsafe_ramp_hold(void) {
+static void test_unsafe_ramp(void) {
   thermostat_state_t result =
-      thermostat_transition(THERMOSTAT_RAMP, THERMOSTAT_SENSOR_FAULT, false);
+      thermostat_transition(THERMOSTAT_RAMP, THERMOSTAT_TARGET_REACHED, false);
+
+  assert(result == THERMOSTAT_FAULT);
+}
+
+static void test_unsafe_hold(void) {
+  thermostat_state_t result =
+      thermostat_transition(THERMOSTAT_HOLD, THERMOSTAT_TARGET_CHANGED, false);
 
   assert(result == THERMOSTAT_FAULT);
 }
@@ -83,6 +90,7 @@ int main(void) {
   test_start_fault();
   test_reset_fault();
   test_reset_safe();
-  test_unsafe_ramp_hold();
+  test_unsafe_ramp();
+  test_unsafe_hold();
   return 0;
 }
