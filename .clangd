@@ -1,0 +1,7 @@
+If:
+  PathMatch: 'tests/.*'
+
+CompileFlags:
+  Compiler: C:/Users/user/scoop/apps/gcc/current/bin/gcc.exe
+  Add:
+    - -std=c11
