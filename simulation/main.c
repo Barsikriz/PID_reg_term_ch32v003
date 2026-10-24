@@ -18,8 +18,9 @@ int main(void) {
   float current_c = 25.0f;
   float control = 0.5f;
   float dt_s = 1.0f;
+  fprintf(fp, "time_s,temperature_c,control\n");
   fprintf(fp, "%d,%.6f,%.2f\n", 0, current_c, control);
-  for (int i = 1; i < 300; i++) {
+  for (int i = 1; i < 301; i++) {
 
     current_c = thermal_step(current_c, control, dt_s, &params);
     fprintf(fp, "%d,%.6f,%.2f\n", i, current_c, control);
