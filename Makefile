@@ -10,7 +10,7 @@ CPPFLAGS := -Ifirmware/control -Ifirmware/system -Isimulation
 CFLAGS   := -std=c11 -Og -g3 -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes
 LDLIBS   := -lm
 
-CORE_SRC := firmware/control/reference.c firmware/system/state_machine.c simulation/thermal_model.c
+CORE_SRC := firmware/control/reference.c firmware/system/state_machine.c simulation/thermal_model.c build/host/firmware/control/pi_controller.o
 TEST_SRC := $(wildcard tests/test_*.c)
 ALL_SRC  := $(CORE_SRC) $(TEST_SRC)
 
