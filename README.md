@@ -38,9 +38,9 @@ The firmware separates temperature control algorithms from hardware-specific per
 - [x] Initial repository structure
 - [x] Temperature reference generator with slew-rate limiting
 - [x] Basic host-based unit tests
-- [ ] Application state machine
-- [ ] Thermal simulation
-- [ ] PI/PID controller
+- [x] Application state machine
+- [x] Thermal simulation
+- [x] PI/PID controller
 - [ ] Temperature sensor driver
 - [ ] MCU integration
 - [ ] Bidirectional power-stage integration
