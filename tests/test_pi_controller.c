@@ -35,12 +35,21 @@ static void test_reset(void) {
   pi_reset(&pi);
   assert(pi.integral == 0.0f);
 }
+static void test_integral_unwinds(void) {
+  pi_controller_t pi = {.kp = 0.1f, .ki = 0.1f, .integral = 20.0f};
+
+  float u = pi_update(&pi, 0.0f, 1.0f, 1.0f);
+
+  assert(fabsf(u - 1.0f) < 0.0001f);
+  assert(fabsf(pi.integral - 19.0f) < 0.0001f);
+}
+
 int main(void) {
   test_positive_55();
   test_negative_55();
   test_integral_accumulates();
   test_positive_1();
   test_reset();
-
+  test_integral_unwinds();
   return 0;
 }
