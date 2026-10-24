@@ -49,3 +49,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Simulation output
+simulation/*.csv

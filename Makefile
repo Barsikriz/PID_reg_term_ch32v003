@@ -14,7 +14,7 @@ CORE_SRC := firmware/control/reference.c firmware/system/state_machine.c simulat
 TEST_SRC := $(wildcard tests/test_*.c)
 ALL_SRC  := $(CORE_SRC) $(TEST_SRC)
 
-CORE_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(CORE_SRC)void)
+CORE_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(CORE_SRC))
 TEST_OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(TEST_SRC))
 TEST_BIN := $(patsubst tests/%.c,$(BUILD_DIR)/tests/%.exe,$(TEST_SRC))
 DEPFILES := $(CORE_OBJ:.o=.d) $(TEST_OBJ:.o=.d)
@@ -77,3 +77,18 @@ help:
 	@echo test   - Build and run all host tests
 	@echo clean  - Delete the build directory
 	@echo compdb - Generate compile_commands.json for clangd
+
+
+SIM_SRC := simulation/main.c
+SIM_OBJ := $(BUILD_DIR)/simulation/main.o
+SIM_BIN := $(BUILD_DIR)/simulation/thermostat_sim.exe
+
+ALL_SRC += $(SIM_SRC)
+DEPFILES += $(SIM_OBJ:.o=.d)
+
+.PHONY: simulation
+
+simulation: $(SIM_BIN)
+
+$(SIM_BIN): $(SIM_OBJ) $(CORE_OBJ)
+	$(CC) $^ -o "$@" $(LDFLAGS) $(LDLIBS)

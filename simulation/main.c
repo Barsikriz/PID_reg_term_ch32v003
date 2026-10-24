@@ -9,7 +9,7 @@ thermal_params_t params = {
 };
 
 int main(void) {
-  FILE *fp = fopen("simulation.csv", "w");
+  FILE *fp = fopen("simulation/simulation.csv", "w");
   if (fp == NULL) {
     perror("Ошибка открытия файла");
     return 1;
@@ -19,12 +19,12 @@ int main(void) {
   float control = 0.5f;
   float dt_s = 1.0f;
   fprintf(fp, "%d,%.6f,%.2f\n", 0, current_c, control);
-  for (int i = 0; i < 300; i++) {
+  for (int i = 1; i < 300; i++) {
 
     current_c = thermal_step(current_c, control, dt_s, &params);
-    printf("%d,%.6f,%.2f\n", i, current_c, control);
+    fprintf(fp, "%d,%.6f,%.2f\n", i, current_c, control);
   }
   fclose(fp);
-  printf("Файл products.csv успешно создан!\n");
+  printf("Файл simulation.csv успешно создан!\n");
   return 0;
 }
